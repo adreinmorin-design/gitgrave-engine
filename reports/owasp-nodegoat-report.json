@@ -1,0 +1,118 @@
+{
+  "report_title": "GitGrave Security Report",
+  "generated_at": "2026-08-30T02:25:15.467225+00:00",
+  "target_input": "https://github.com/OWASP/NodeGoat",
+  "status": "completed",
+  "repositories": [
+    "OWASP/NodeGoat"
+  ],
+  "summary": {
+    "repositories": 1,
+    "secret_findings": 0,
+    "heuristic_findings": 9,
+    "sink_traces": 0,
+    "total_findings": 9
+  },
+  "finding_count": 9,
+  "findings": [
+    {
+      "type": "heuristic",
+      "repository": "OWASP/NodeGoat",
+      "commit": "72b7b9bb1596a19c91ce193bb643bb917f23c388",
+      "file": "app/routes/contributions.js",
+      "line": 35,
+      "rule": "dynamic_eval",
+      "explanation": "Dynamic evaluation can execute attacker-controlled input.",
+      "evidence_poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/72b7b9bb1596a19c91ce193bb643bb917f23c388.diff' | nl -ba | sed -n '33,37p'",
+      "poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/72b7b9bb1596a19c91ce193bb643bb917f23c388.diff' | nl -ba | sed -n '33,37p'"
+    },
+    {
+      "type": "heuristic",
+      "repository": "OWASP/NodeGoat",
+      "commit": "72b7b9bb1596a19c91ce193bb643bb917f23c388",
+      "file": "app/routes/contributions.js",
+      "line": 36,
+      "rule": "dynamic_eval",
+      "explanation": "Dynamic evaluation can execute attacker-controlled input.",
+      "evidence_poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/72b7b9bb1596a19c91ce193bb643bb917f23c388.diff' | nl -ba | sed -n '34,38p'",
+      "poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/72b7b9bb1596a19c91ce193bb643bb917f23c388.diff' | nl -ba | sed -n '34,38p'"
+    },
+    {
+      "type": "heuristic",
+      "repository": "OWASP/NodeGoat",
+      "commit": "72b7b9bb1596a19c91ce193bb643bb917f23c388",
+      "file": "app/routes/contributions.js",
+      "line": 37,
+      "rule": "dynamic_eval",
+      "explanation": "Dynamic evaluation can execute attacker-controlled input.",
+      "evidence_poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/72b7b9bb1596a19c91ce193bb643bb917f23c388.diff' | nl -ba | sed -n '35,39p'",
+      "poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/72b7b9bb1596a19c91ce193bb643bb917f23c388.diff' | nl -ba | sed -n '35,39p'"
+    },
+    {
+      "type": "heuristic",
+      "repository": "OWASP/NodeGoat",
+      "commit": "fd0d7e9e1db48ee2d115af661ab40438f603d2db",
+      "file": "app/routes/contributions.js",
+      "line": 35,
+      "rule": "dynamic_eval",
+      "explanation": "Dynamic evaluation can execute attacker-controlled input.",
+      "evidence_poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/fd0d7e9e1db48ee2d115af661ab40438f603d2db.diff' | nl -ba | sed -n '33,37p'",
+      "poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/fd0d7e9e1db48ee2d115af661ab40438f603d2db.diff' | nl -ba | sed -n '33,37p'"
+    },
+    {
+      "type": "heuristic",
+      "repository": "OWASP/NodeGoat",
+      "commit": "fd0d7e9e1db48ee2d115af661ab40438f603d2db",
+      "file": "app/routes/contributions.js",
+      "line": 36,
+      "rule": "dynamic_eval",
+      "explanation": "Dynamic evaluation can execute attacker-controlled input.",
+      "evidence_poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/fd0d7e9e1db48ee2d115af661ab40438f603d2db.diff' | nl -ba | sed -n '34,38p'",
+      "poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/fd0d7e9e1db48ee2d115af661ab40438f603d2db.diff' | nl -ba | sed -n '34,38p'"
+    },
+    {
+      "type": "heuristic",
+      "repository": "OWASP/NodeGoat",
+      "commit": "fd0d7e9e1db48ee2d115af661ab40438f603d2db",
+      "file": "app/routes/contributions.js",
+      "line": 37,
+      "rule": "dynamic_eval",
+      "explanation": "Dynamic evaluation can execute attacker-controlled input.",
+      "evidence_poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/fd0d7e9e1db48ee2d115af661ab40438f603d2db.diff' | nl -ba | sed -n '35,39p'",
+      "poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/fd0d7e9e1db48ee2d115af661ab40438f603d2db.diff' | nl -ba | sed -n '35,39p'"
+    },
+    {
+      "type": "heuristic",
+      "repository": "OWASP/NodeGoat",
+      "commit": "4fcc9df9d4ac62e6f4858e5594ca721e9d2e9cea",
+      "file": "app/routes/contributions.js",
+      "line": 35,
+      "rule": "dynamic_eval",
+      "explanation": "Dynamic evaluation can execute attacker-controlled input.",
+      "evidence_poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/4fcc9df9d4ac62e6f4858e5594ca721e9d2e9cea.diff' | nl -ba | sed -n '33,37p'",
+      "poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/4fcc9df9d4ac62e6f4858e5594ca721e9d2e9cea.diff' | nl -ba | sed -n '33,37p'"
+    },
+    {
+      "type": "heuristic",
+      "repository": "OWASP/NodeGoat",
+      "commit": "4fcc9df9d4ac62e6f4858e5594ca721e9d2e9cea",
+      "file": "app/routes/contributions.js",
+      "line": 36,
+      "rule": "dynamic_eval",
+      "explanation": "Dynamic evaluation can execute attacker-controlled input.",
+      "evidence_poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/4fcc9df9d4ac62e6f4858e5594ca721e9d2e9cea.diff' | nl -ba | sed -n '34,38p'",
+      "poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/4fcc9df9d4ac62e6f4858e5594ca721e9d2e9cea.diff' | nl -ba | sed -n '34,38p'"
+    },
+    {
+      "type": "heuristic",
+      "repository": "OWASP/NodeGoat",
+      "commit": "4fcc9df9d4ac62e6f4858e5594ca721e9d2e9cea",
+      "file": "app/routes/contributions.js",
+      "line": 37,
+      "rule": "dynamic_eval",
+      "explanation": "Dynamic evaluation can execute attacker-controlled input.",
+      "evidence_poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/4fcc9df9d4ac62e6f4858e5594ca721e9d2e9cea.diff' | nl -ba | sed -n '35,39p'",
+      "poc": "curl --fail --silent --show-error -H 'Accept: application/vnd.github.v3.diff' 'https://github.com/OWASP/NodeGoat/commit/4fcc9df9d4ac62e6f4858e5594ca721e9d2e9cea.diff' | nl -ba | sed -n '35,39p'"
+    }
+  ]
+}
