@@ -1,0 +1,2 @@
+[console_scripts]
+gitgrave = gitgrave_engine.__main__:main

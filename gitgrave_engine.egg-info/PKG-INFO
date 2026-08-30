@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: gitgrave-engine
+Version: 0.1.0
+Summary: Defensive, read-only GitHub exposure scanner
+Requires-Python: >=3.11
+License-File: LICENSE
+Requires-Dist: aiohttp>=3.9
+Requires-Dist: pydantic>=2.0
+Dynamic: license-file
