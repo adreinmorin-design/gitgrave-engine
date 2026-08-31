@@ -68,6 +68,18 @@ def test_should_skip_demo_secret_candidates_in_test_files() -> None:
     assert _heuristic_confidence("dynamic_eval", "test/demo.js", "eval(example)") == "low"
 
 
+def test_resume_tracker_skips_completed_repositories(tmp_path: Path) -> None:
+    state_path = tmp_path / "resume-state.json"
+    tracker = SecurityAuditTracker(target_input="https://github.com/example")
+    tracker.repositories = ["example/repo-a", "example/repo-b", "example/repo-c"]
+    tracker.completed_repositories = ["example/repo-a"]
+    state_path.write_text(tracker.model_dump_json(), encoding="utf-8")
+
+    loaded = SecurityAuditTracker.load_state(state_path)
+
+    assert loaded.pending_repositories() == ["example/repo-b", "example/repo-c"]
+
+
 def test_write_report_package_includes_poc_and_summary(tmp_path: Path) -> None:
     tracker = SecurityAuditTracker(target_input="https://github.com/example/repo")
     tracker.secret_findings.append(

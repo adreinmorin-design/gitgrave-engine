@@ -70,11 +70,34 @@ class SinkTrace(BaseModel):
 class SecurityAuditTracker(BaseModel):
     target_input: str
     repositories: list[str] = Field(default_factory=list)
+    completed_repositories: list[str] = Field(default_factory=list)
     steps: list[AuditStep] = Field(default_factory=list)
     secret_findings: list[SecretFinding] = Field(default_factory=list)
     heuristic_findings: list[HeuristicFinding] = Field(default_factory=list)
     sink_traces: list[SinkTrace] = Field(default_factory=list)
     status: Literal["running", "completed", "failed"] = "running"
+
+    def pending_repositories(self) -> list[str]:
+        completed = set(self.completed_repositories)
+        return [repository for repository in self.repositories if repository not in completed]
+
+    def mark_repository_completed(self, repository: str) -> None:
+        if repository not in self.completed_repositories:
+            self.completed_repositories.append(repository)
+
+    def save_state(self, path: str | Path) -> Path:
+        output_path = Path(path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(self.model_dump_json(indent=2), encoding="utf-8")
+        return output_path
+
+    @classmethod
+    def load_state(cls, path: str | Path) -> "SecurityAuditTracker":
+        input_path = Path(path)
+        if not input_path.exists():
+            return cls(target_input="")
+        payload = json.loads(input_path.read_text(encoding="utf-8"))
+        return cls.model_validate(payload)
 
     def log(self, stage: Literal["target_input", "repo_discovery", "commit_history", "secret_detection", "sink_execution"], message: str, **metadata: Any) -> None:
         sanitized: dict[str, Any] = {}
@@ -603,13 +626,23 @@ class GitHubScanner:
                 self.tracker.sink_traces.append(SinkTrace(repository=repository, commit=sha, file=filename, source_line=source_line, source=source_kind, sink_line=line_number, sink=sink_name, confidence=sink_confidence))
                 self.tracker.log("sink_execution", "Static source-to-sink flow traced; execution was not performed", repository=repository, commit=sha, file=filename, source=source_kind, sink=sink_name, source_line=source_line, sink_line=line_number)
 
-    async def run(self) -> SecurityAuditTracker:
+    async def run(self, *, state_path: str | Path | None = None) -> SecurityAuditTracker:
         try:
-            await self.discover(self.tracker.target_input)
+            if not self.tracker.repositories:
+                await self.discover(self.tracker.target_input)
+            pending = self.tracker.pending_repositories()
+            if not pending:
+                self.tracker.log("repo_discovery", "No remaining repositories to scan; resuming from saved checkpoint")
             async with aiohttp.ClientSession(timeout=self.timeout) as session:
-                await asyncio.gather(*(self.scan_repository(session, repository) for repository in self.tracker.repositories))
+                for repository in pending:
+                    await self.scan_repository(session, repository)
+                    self.tracker.mark_repository_completed(repository)
+                    if state_path is not None:
+                        self.tracker.save_state(state_path)
             self.tracker.log("sink_execution", "Credential validation skipped: detected values are never transmitted")
             self.tracker.status = "completed"
+            if state_path is not None:
+                self.tracker.save_state(state_path)
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as error:
             self.tracker.status = "failed"
             self.tracker.log("sink_execution", "Scan failed safely", error=type(error).__name__)
@@ -620,11 +653,21 @@ async def scout_target(target_input: str, tracker: SecurityAuditTracker) -> list
     return await GitHubScanner(tracker).discover(target_input)
 
 
-async def scan_target(target_input: str, token: str | None = None) -> SecurityAuditTracker:
+async def scan_target(target_input: str, token: str | None = None, *, state_path: str | Path | None = None) -> SecurityAuditTracker:
     """Run a read-only GitHub exposure scan for a target input."""
-    tracker = SecurityAuditTracker(target_input=target_input)
+    tracker: SecurityAuditTracker
+    if state_path is not None and Path(state_path).exists():
+        tracker = SecurityAuditTracker.load_state(state_path)
+        if not tracker.target_input:
+            tracker.target_input = target_input
+    else:
+        tracker = SecurityAuditTracker(target_input=target_input)
+    if not tracker.repositories and state_path is not None and Path(state_path).exists():
+        tracker = SecurityAuditTracker(target_input=target_input)
     token = token or resolve_github_token()
     scanner = GitHubScanner(tracker, token=token)
     tracker.log("target_input", "Resolved GitHub token from secret store or environment", token_present=bool(token))
-    await scanner.run()
+    if state_path is not None and not Path(state_path).exists():
+        tracker.save_state(state_path)
+    await scanner.run(state_path=state_path)
     return tracker
