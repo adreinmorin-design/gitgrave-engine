@@ -17,6 +17,8 @@ from urllib.parse import quote, urlparse
 import aiohttp
 from pydantic import BaseModel, Field
 
+from .secrets import resolve_github_token
+
 GITHUB_API = "https://api.github.com"
 
 
@@ -75,7 +77,19 @@ class SecurityAuditTracker(BaseModel):
     status: Literal["running", "completed", "failed"] = "running"
 
     def log(self, stage: Literal["target_input", "repo_discovery", "commit_history", "secret_detection", "sink_execution"], message: str, **metadata: Any) -> None:
-        self.steps.append(AuditStep(sequence=len(self.steps) + 1, stage=stage, message=message, metadata=metadata))
+        sanitized: dict[str, Any] = {}
+        for key, value in metadata.items():
+            if value is None:
+                sanitized[key] = None
+                continue
+            lowered = str(key).lower()
+            if any(marker in lowered for marker in ("token", "secret", "password", "authorization", "bearer", "cookie", "key")):
+                sanitized[key] = "[REDACTED]"
+            elif isinstance(value, str) and any(marker in value.lower() for marker in ("ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat", "bearer ", "token=")):
+                sanitized[key] = "[REDACTED]"
+            else:
+                sanitized[key] = value
+        self.steps.append(AuditStep(sequence=len(self.steps) + 1, stage=stage, message=message, metadata=sanitized))
 
 
 SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -99,8 +113,8 @@ SOURCE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 SINK_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("dynamic_execution", re.compile(r"\b(?:eval|exec)\s*\(")),
-    ("shell_execution", re.compile(r"\b(?:os\.system|os\.popen|subprocess\.[A-Za-z_]+)\s*\(")),
+    ("shell_execution", re.compile(r"\b(?:os\.system|os\.popen|subprocess\.[A-Za-z_]+|exec\.Command|Process\.Start|Process\.StartInfo)\s*\(")),
+    ("dynamic_execution", re.compile(r"\b(?:eval|exec|Execute\s*\()")),
     ("sql_execution", re.compile(r"\.(?:execute|executemany)\s*\(")),
     ("template_execution", re.compile(r"\b(?:render_template_string|jinja2\.Template)\s*\(")),
 )
@@ -212,30 +226,65 @@ def _heuristic_confidence(rule: str, filename: str, line: str) -> Literal["low",
     return "medium"
 
 
-def _extract_variable_assignments(line: str, tracked_sources: dict[str, str]) -> dict[str, str]:
-    assignments: dict[str, str] = {}
-    for match in re.finditer(r"\b(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]+)", line):
-        variable_name = match.group(1)
-        value = match.group(2).strip()
-        source: str | None = None
+def _normalize_variable_name(name: str) -> str:
+    return name.strip().lstrip("$")
 
-        if re.search(r"(?:req\.|request\.|input\b|query\b|body\b|form\b|json\b|params\b)", value):
-            source = "request_input"
-        else:
-            for tracked_name, tracked_source in tracked_sources.items():
-                if re.search(rf"\b{re.escape(tracked_name)}\b", value):
-                    source = tracked_source
-                    break
 
-        if source is not None:
-            assignments[variable_name] = source
+def _value_uses_variable(value: str, variable: str) -> bool:
+    variable_name = re.escape(_normalize_variable_name(variable))
+    return bool(re.search(rf"(?<![A-Za-z0-9_])(?:\$)?{variable_name}(?![A-Za-z0-9_])", value))
+
+
+def _extract_variable_assignments(line: str, tracked_sources: dict[str, tuple[str, int]], line_number: int) -> dict[str, tuple[str, int]]:
+    assignments: dict[str, tuple[str, int]] = {}
+    patterns = (
+        re.compile(r"\b(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]+)"),
+        re.compile(r"\$?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?![=])([^#;\n]+)"),
+        re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*(?:[A-Za-z_][A-Za-z0-9_<>\[\].]+(?:\s*\|\s*[A-Za-z_][A-Za-z0-9_<>\[\].]+)?)?)?\s*=\s*(?![=])([^#;\n]+)"),
+        re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*([^\n]+)"),
+    )
+
+    for pattern in patterns:
+        for match in pattern.finditer(line):
+            variable_name = _normalize_variable_name(match.group(1))
+            value = match.group(2).strip()
+            if not value:
+                continue
+            source: str | None = None
+            source_line = line_number
+
+            if re.search(r"(?:\$_(?:GET|POST|REQUEST|SERVER)|(?:\breq\b|\brequest\b|\binput\b|\bquery\b|\bbody\b|\bform\b|\bjson\b|\bparams\b|\bparam\b|FormValue|getParameter|Request\.Query|Request\.Form|Request\.|Query\[|Form\[|params\[:)|_GET\b|_POST\b|_REQUEST\b)", value, flags=re.IGNORECASE):
+                source = "request_input"
+            else:
+                matched_sources: list[tuple[int, str]] = []
+                for tracked_name, (tracked_source, tracked_line) in tracked_sources.items():
+                    if _value_uses_variable(value, tracked_name):
+                        matched_sources.append((tracked_line, tracked_source))
+                if matched_sources:
+                    source = min(matched_sources, key=lambda item: item[0])[1]
+                    source_line = min(matched_sources, key=lambda item: item[0])[0]
+
+            if source is not None:
+                assignments[variable_name] = (source, source_line)
     return assignments
 
 
 def _extract_sink_variable(line: str) -> str | None:
-    match = re.search(r"\b(?:eval|exec|os\.system|os\.popen|subprocess\.[A-Za-z_]+)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)", line)
-    if match:
-        return match.group(1)
+    match = re.search(r"\b(?:eval|exec|os\.system|os\.popen|subprocess\.[A-Za-z_]+|exec\.Command|Server\.Execute|Execute)\s*\((.*)\)", line)
+    if not match:
+        return None
+
+    args = match.group(1)
+    for candidate in reversed([part.strip() for part in args.split(",")]):
+        cleaned = candidate.strip().strip('"\'`')
+        if not cleaned:
+            continue
+        if cleaned.startswith("$"):
+            cleaned = cleaned[1:]
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", cleaned):
+            return cleaned
+        if re.fullmatch(r"\$?[A-Za-z_][A-Za-z0-9_]*", cleaned):
+            return _normalize_variable_name(cleaned)
     return None
 
 
@@ -372,7 +421,7 @@ class GitHubScanner:
         self.semaphore = asyncio.Semaphore(max(1, concurrency))
         self.timeout = aiohttp.ClientTimeout(total=20)
         self.deep_review = deep_review
-        self.max_sink_distance = 80 if deep_review else 20
+        self.max_sink_distance = 200 if deep_review else 20
 
     def _headers(self) -> dict[str, str]:
         headers = {"Accept": "application/vnd.github+json", "User-Agent": "gitgrave-engine/1.0"}
@@ -424,15 +473,13 @@ class GitHubScanner:
         if _skip_file_path(filename, deep_review=self.deep_review):
             return
         lines = text.splitlines()
-        tracked_sources: dict[str, str] = {}
-        source_locations: dict[str, int] = {}
+        tracked_sources: dict[str, tuple[str, int]] = {}
         for line_number, line in enumerate(lines, 1):
             if not line:
                 continue
 
-            for assigned_name, source in _extract_variable_assignments(line, tracked_sources).items():
-                tracked_sources[assigned_name] = source
-                source_locations[assigned_name] = line_number
+            for assigned_name, (source, source_line) in _extract_variable_assignments(line, tracked_sources, line_number).items():
+                tracked_sources[assigned_name] = (source, source_line)
 
             for kind, pattern in SECRET_PATTERNS:
                 for match in pattern.finditer(line):
@@ -455,9 +502,7 @@ class GitHubScanner:
             sink_var = _extract_sink_variable(line)
             if not sink_var or sink_var not in tracked_sources:
                 continue
-            source_line = source_locations.get(sink_var)
-            if source_line is None:
-                continue
+            source_kind, source_line = tracked_sources[sink_var]
             distance = abs(source_line - line_number)
             if distance > self.max_sink_distance:
                 continue
@@ -472,13 +517,13 @@ class GitHubScanner:
                     commit=sha,
                     file=filename,
                     source_line=source_line,
-                    source=tracked_sources[sink_var],
+                    source=source_kind,
                     sink_line=line_number,
                     sink=sink_name,
                     confidence=sink_confidence,
                 )
             )
-            self.tracker.log("sink_execution", "Static source-to-sink flow traced; execution was not performed", repository=repository, commit=sha, file=filename, source=tracked_sources[sink_var], sink=sink_name, source_line=source_line, sink_line=line_number)
+            self.tracker.log("sink_execution", "Static source-to-sink flow traced; execution was not performed", repository=repository, commit=sha, file=filename, source=source_kind, sink=sink_name, source_line=source_line, sink_line=line_number)
 
     async def scan_repository(self, session: aiohttp.ClientSession, repository: str) -> None:
         owner, name = repository.split("/", 1)
@@ -520,14 +565,12 @@ class GitHubScanner:
                 for line_number, line in enumerate((file_data.get("patch") or "").splitlines(), 1)
                 if line.startswith("+") and not line.startswith("+++")
             ]
-            tracked_sources: dict[str, str] = {}
-            source_locations: dict[str, int] = {}
+            tracked_sources: dict[str, tuple[str, int]] = {}
             for line_number, line in added_lines:
                 if not line:
                     continue
-                for assigned_name, source in _extract_variable_assignments(line, tracked_sources).items():
-                    tracked_sources[assigned_name] = source
-                    source_locations[assigned_name] = line_number
+                for assigned_name, (source, source_line) in _extract_variable_assignments(line, tracked_sources, line_number).items():
+                    tracked_sources[assigned_name] = (source, source_line)
 
                 for kind, pattern in SECRET_PATTERNS:
                     for match in pattern.finditer(line):
@@ -548,15 +591,17 @@ class GitHubScanner:
                 sink_var = _extract_sink_variable(line)
                 if not sink_var or sink_var not in tracked_sources:
                     continue
-                source_line = source_locations.get(sink_var)
-                if source_line is None:
+                source_kind, source_line = tracked_sources[sink_var]
+                distance = abs(source_line - line_number)
+                if distance > self.max_sink_distance:
                     continue
                 sink_name = next((sink for sink, pattern in SINK_PATTERNS if pattern.search(line)), "dynamic_execution")
                 sink_key = (repository, sha, filename, source_line, line_number, sink_name)
                 if sink_key in {(trace.repository, trace.commit, trace.file, trace.source_line, trace.sink_line, trace.sink) for trace in self.tracker.sink_traces}:
                     continue
-                self.tracker.sink_traces.append(SinkTrace(repository=repository, commit=sha, file=filename, source_line=source_line, source=tracked_sources[sink_var], sink_line=line_number, sink=sink_name, confidence="high"))
-                self.tracker.log("sink_execution", "Static source-to-sink flow traced; execution was not performed", repository=repository, commit=sha, file=filename, source=tracked_sources[sink_var], sink=sink_name, source_line=source_line, sink_line=line_number)
+                sink_confidence: Literal["medium", "high"] = "high" if distance <= 5 else "medium"
+                self.tracker.sink_traces.append(SinkTrace(repository=repository, commit=sha, file=filename, source_line=source_line, source=source_kind, sink_line=line_number, sink=sink_name, confidence=sink_confidence))
+                self.tracker.log("sink_execution", "Static source-to-sink flow traced; execution was not performed", repository=repository, commit=sha, file=filename, source=source_kind, sink=sink_name, source_line=source_line, sink_line=line_number)
 
     async def run(self) -> SecurityAuditTracker:
         try:
@@ -578,6 +623,8 @@ async def scout_target(target_input: str, tracker: SecurityAuditTracker) -> list
 async def scan_target(target_input: str, token: str | None = None) -> SecurityAuditTracker:
     """Run a read-only GitHub exposure scan for a target input."""
     tracker = SecurityAuditTracker(target_input=target_input)
+    token = token or resolve_github_token()
     scanner = GitHubScanner(tracker, token=token)
+    tracker.log("target_input", "Resolved GitHub token from secret store or environment", token_present=bool(token))
     await scanner.run()
     return tracker

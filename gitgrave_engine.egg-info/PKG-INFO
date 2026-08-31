@@ -6,4 +6,5 @@ Requires-Python: >=3.11
 License-File: LICENSE
 Requires-Dist: aiohttp>=3.9
 Requires-Dist: pydantic>=2.0
+Requires-Dist: keyring>=25.0
 Dynamic: license-file

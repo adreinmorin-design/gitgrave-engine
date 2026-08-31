@@ -10,6 +10,7 @@ from .scanner import (
     scout_target,
     write_report_package,
 )
+from .secrets import resolve_github_token
 
 __all__ = [
     "AuditStep",
@@ -17,6 +18,7 @@ __all__ = [
     "SecretFinding",
     "SecurityAuditTracker",
     "SinkTrace",
+    "resolve_github_token",
     "scan_target",
     "scout_target",
     "write_report_package",
